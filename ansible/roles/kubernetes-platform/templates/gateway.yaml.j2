@@ -12,3 +12,15 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+    - name: websecure
+      port: {{ traefik_gateway_tls_listener_port }}
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: {{ traefik_gateway_tls_secret_name }}
+      allowedRoutes:
+        namespaces:
+          from: All

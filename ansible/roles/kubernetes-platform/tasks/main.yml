@@ -145,6 +145,18 @@
     - platform-render
     - gateway
 
+- name: Render wildcard TLS OpenSSL config
+  ansible.builtin.template:
+    src: wildcard-tls-openssl.cnf.j2
+    dest: /tmp/kubernetes-platform/wildcard-tls-openssl.cnf
+    mode: '0644'
+  tags:
+    - kubernetes-platform
+    - platform
+    - platform-render
+    - gateway
+    - tls
+
 - name: Install MetalLB
   ansible.builtin.command: >-
     {{ helm_binary_path }} upgrade --install metallb metallb/metallb
@@ -214,6 +226,38 @@
     - kubernetes-platform
     - platform
     - traefik
+
+- name: Generate wildcard TLS certificate for shared Gateway
+  ansible.builtin.command: >-
+    openssl req -x509 -nodes -newkey rsa:2048
+    -days {{ traefik_gateway_tls_days }}
+    -keyout /tmp/kubernetes-platform/wildcard-tls.key
+    -out /tmp/kubernetes-platform/wildcard-tls.crt
+    -config /tmp/kubernetes-platform/wildcard-tls-openssl.cnf
+  args:
+    creates: /tmp/kubernetes-platform/wildcard-tls.crt
+  run_once: true
+  tags:
+    - kubernetes-platform
+    - platform
+    - gateway
+    - tls
+
+- name: Apply wildcard TLS Secret for shared Gateway
+  ansible.builtin.shell: >-
+    kubectl -n {{ traefik_gateway_namespace }}
+    create secret tls {{ traefik_gateway_tls_secret_name }}
+    --cert=/tmp/kubernetes-platform/wildcard-tls.crt
+    --key=/tmp/kubernetes-platform/wildcard-tls.key
+    --dry-run=client -o yaml | kubectl apply -f -
+  register: gateway_tls_secret_apply
+  changed_when: "'unchanged' not in gateway_tls_secret_apply.stdout"
+  run_once: true
+  tags:
+    - kubernetes-platform
+    - platform
+    - gateway
+    - tls
 
 - name: Apply shared Gateway
   ansible.builtin.command: kubectl apply -f /tmp/kubernetes-platform/gateway.yaml
