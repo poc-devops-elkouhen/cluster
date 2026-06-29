@@ -85,3 +85,50 @@
       tags:
         - kubernetes-platform
         - platform
+
+- hosts: kubernetes
+  become: true
+  vars:
+    _registry_ip: "{{ metallb_addresses[0].split('-')[0] }}"
+    _registry_host: "registry.{{ _registry_ip }}.nip.io"
+    _certs_dir: "/etc/containerd/certs.d/{{ _registry_host }}"
+    _cert_src: /tmp/kubernetes-platform/wildcard-tls.crt
+  tags:
+    - registry-cert
+  tasks:
+    - name: Slurp wildcard TLS cert from master
+      ansible.builtin.slurp:
+        src: "{{ _cert_src }}"
+      register: _wildcard_cert
+      delegate_to: "{{ groups['kubernetes-master'][0] }}"
+      run_once: true
+
+    - name: Create containerd certs.d directory for registry
+      ansible.builtin.file:
+        path: "{{ _certs_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy wildcard TLS cert for registry
+      ansible.builtin.copy:
+        content: "{{ _wildcard_cert.content | b64decode }}"
+        dest: "{{ _certs_dir }}/ca.crt"
+        mode: '0644'
+      notify: restart containerd
+
+    - name: Create hosts.toml for registry
+      ansible.builtin.copy:
+        dest: "{{ _certs_dir }}/hosts.toml"
+        mode: '0644'
+        content: |
+          server = "https://{{ _registry_host }}"
+
+          [host."https://{{ _registry_host }}"]
+            ca = ["{{ _certs_dir }}/ca.crt"]
+      notify: restart containerd
+
+  handlers:
+    - name: restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
